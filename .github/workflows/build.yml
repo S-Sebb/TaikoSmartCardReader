@@ -1,0 +1,25 @@
+name: Build and upload artifact
+
+on: [ push, pull_request ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Remove existing xpacks installation
+        run: rm -rf "$GITHUB_WORKSPACE/xpacks"
+      - name: Install xpm
+        run: npm install --global xpm@latest
+      - name: Install depends
+        run: sudo apt-get install -y mingw-w64 ninja-build nasm; pip3 install meson
+      - name: Upgrade gcc
+        run: npx xpm install @xpack-dev-tools/mingw-w64-gcc@latest --verbose
+      - name: Make
+        run: export PATH=$GITHUB_WORKSPACE/xpacks/.bin:$PATH && make setup dist-no-7z
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: out/

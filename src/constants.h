@@ -1,0 +1,19 @@
+#pragma once
+#include "helpers.h"
+
+constexpr u8 maxApduSize = 255;
+constexpr BYTE piccOperatingParams = 0xDFu;
+constexpr BYTE piccOperatingParamCmd[] = {0xFFu, 0x00u, 0x51u, piccOperatingParams, 0x00u};
+constexpr BYTE piccSuccess = 0x90u;
+constexpr BYTE piccError = 0x63u;
+constexpr BYTE uidCmd[] = {0xFFu, 0xCAu, 0x00u, 0x00u, 0x00u};
+constexpr BYTE loadKeyCmd[] = {0xFFu, 0x82u, 0x00u, 0x00u, 0x06u, 0x57u, 0x43u, 0x43u, 0x46u, 0x76u, 0x32u};
+constexpr BYTE authBlock2Cmd[] = {0xFFu, 0x86u, 0x00u, 0x00u, 0x05u, 0x01u, 0x00u, 0x02u, 0x61u, 0x00u};
+constexpr BYTE readBlock2Cmd[] = {0xFFu, 0xB0u, 0x00u, 0x02u, 0x10u};
+enum ScardAtrProtocol
+{
+    SCARD_ATR_PROTOCOL_ISO14443_PART3 = 0x03,
+    SCARD_ATR_PROTOCOL_ISO15693_PART3 = 0x0B,
+    SCARD_ATR_PROTOCOL_FELICA_212K = 0x11,
+    SCARD_ATR_PROTOCOL_FELICA_424K = 0x12,
+};
