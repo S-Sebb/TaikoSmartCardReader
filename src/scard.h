@@ -1,48 +1,36 @@
-/**
- * MIT-License
- * Copyright (c) 2018 by nolm <nolan@nolm.name>
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy
- * of this software and associated documentation files (the "Software"), to
- * deal in the Software without restriction, including without limitation the
- * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
- * sell copies of the Software, and to permit persons to whom the Software is
- * furnished to do so, subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in
- * all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
- * IN THE SOFTWARE.
- *
- * Modified version.
- */
-
 #pragma once
 
-// #include <cstdint>
-#include "helpers.h"
+#include <cstdint>
+#include <winscard.h>
+#include <helpers.h>
 
-// cardinfo_t is a description of a card that was presented to a reader
-typedef struct card_info
-{
-    int card_type;
-    uint8_t uid[8];
-} card_info_t;
+class SmartCard {
+public:
+    card_info_t cardInfo{};            // Information about the card.
 
-void scard_update(uint8_t *buf);
+    SmartCard();
+    ~SmartCard();
 
-void scard_poll(uint8_t *buf, SCARDCONTEXT _hContext, LPCTSTR _readerName, uint8_t unit_no);
+    bool initialize();             // Initialize the smart card reader context.
+    void update();    // Update the status of the smart card reader.
 
-bool scard_init();
+private:
+    SCARDCONTEXT hContext;          // Handle to the smart card context.
+    SCARDHANDLE hCard;              // Handle to the connected card.
+    SCARD_READERSTATE readerState[1];  // Current reader state.
+    LPTSTR readerName;               // Name of the card reader.
+    DWORD activeProtocol{};           // Active protocol used in communication.
+    BYTE cardProtocol{};                // Protocol used by the card.
+    int readCooldown = 500;               // Cooldown for reading the card.
 
-void scard_disconnect(SCARDHANDLE hCard);
 
-bool scard_connect(SCARDCONTEXT _hContext, LPCTSTR _readerName, SCARDHANDLE *hCard, DWORD *dwActiveProtocol);
-
-void scard_exit();
+    void handleCardStatusChange();                 // Handle changes in card status.
+    bool setupReader();                                           // Setup the card reader.
+    bool sendPiccOperatingParams();                               // Send PICC operating parameters to the card.
+    void poll(); // Poll the smart card reader for changes.
+    bool readATR();                                               // Read the ATR of the card.
+    bool connect(); // Connect to a specific reader.
+    void disconnect();             // Disconnect from the smart card reader.
+    long connectReader(DWORD shareMode, DWORD preferredProtocols); // Connect to a specific reader.
+    long transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, size_t recvLen); // Transmit data to the card.
+};

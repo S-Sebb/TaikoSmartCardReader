@@ -16,6 +16,12 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 typedef float f32;
 typedef double f64;
+typedef struct card_info
+{
+    int card_type;
+    uint8_t uid[8];
+    BYTE access_code[10];
+} card_info_t;
 
 #define INFO_COLOUR               FOREGROUND_GREEN
 #define WARNING_COLOUR            (FOREGROUND_RED | FOREGROUND_GREEN)
