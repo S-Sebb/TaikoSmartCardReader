@@ -1,0 +1,30 @@
+name: Build and upload artifact
+
+on: [ push, pull_request ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1.13.0
+      - name: compile
+      - name: Set up Meson and Ninja
+        run: |
+          choco install meson
+          choco install ninja
+      - name: Configure and build with Meson
+        run: |
+          meson setup build64 --buildtype=release
+          ninja -C build64
+      - name: Create bin directory
+        run: |
+          mkdir bin
+      - name: Copy DLL to bin directory
+        run:
+          copy build64\scardreader.dll bin\scardreader.dll
+      - name: Archive bin directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: scardreader
+          path: bin
