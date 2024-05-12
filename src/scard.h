@@ -1,5 +1,4 @@
 #pragma once
-
 #include <cstdint>
 #include <winscard.h>
 #include <helpers.h>
@@ -33,7 +32,7 @@ private:
     void disconnect();             // Disconnect from the smart card reader.
     long connectReader(DWORD shareMode, DWORD preferredProtocols); // Connect to a specific reader.
     long transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen) const; // Transmit data to the card.
-    void lookUpAccessCode(const std::string& content); // Look up the access code of the card.
+    void lookUpCard(const std::string& content); // Look up the access code of the card.
     static size_t writeCallback(void* contents, size_t size, size_t nmemb, std::string* userp); // Helper function to handle the response data.
     static void hexToString(BYTE* hex, size_t len, std::string& str); // Convert a hex string to a string.
 };

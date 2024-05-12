@@ -56,6 +56,9 @@ dkms.conf
 
 subprojects/minhook
 subprojects/tomlc99
+subprojects/curl-8.6.0
+subprojects/nlohmann_json-3.11.2
+subprojects/packagecache
 
 bin/*
 

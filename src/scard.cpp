@@ -138,9 +138,9 @@ void SmartCard::poll() {
         std::string block2Content;
         // Convert pbRecv 6-16 to string
         hexToString(pbRecv + 6, 10, block2Content);
-        lookUpAccessCode(block2Content);
+        lookUpCard(block2Content);
     } else if (cardProtocol == SCARD_ATR_PROTOCOL_FELICA_212K || cardProtocol == SCARD_ATR_PROTOCOL_FELICA_424K) {
-        lookUpAccessCode(cardInfo.uid);
+        lookUpCard(cardInfo.uid);
     }
 
     Sleep(readCooldown);
@@ -243,7 +243,7 @@ size_t SmartCard::writeCallback(void* contents, size_t size, size_t nmemb, std::
     return size * nmemb;
 }
 
-void SmartCard::lookUpAccessCode(const std::string& content) {
+void SmartCard::lookUpCard(const std::string& content) {
     CURL* curl;
     CURLcode res;
     std::string readBuffer;
