@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <windows.h>
+#include <string>
 
 typedef int8_t i8;
 typedef int16_t i16;
@@ -15,12 +16,12 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 typedef float f32;
 typedef double f64;
-typedef struct card_info
+typedef struct cardInfo
 {
-    int card_type; // 0: Mifare, 1: Felica
-    uint8_t uid[8];
-    BYTE access_code[10];
-} card_info_t;
+    std::string cardType;
+    std::string uid;
+    std::string accessCode;
+} cardInfoType;
 
 #define INFO_COLOUR               FOREGROUND_GREEN
 #define WARNING_COLOUR            (FOREGROUND_RED | FOREGROUND_GREEN)

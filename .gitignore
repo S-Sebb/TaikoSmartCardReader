@@ -60,3 +60,4 @@ subprojects/tomlc99
 bin/*
 
 .idea/*
+vkpkg_installed/*

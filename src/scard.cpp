@@ -1,6 +1,10 @@
 #include "scard.h"
 #include "constants.h"
 #include <iostream>
+#include <curl/curl.h>
+#include <nlohmann/json.hpp>
+#include <sstream>
+#include <iomanip>
 
 extern char module[];
 
@@ -44,7 +48,9 @@ void SmartCard::disconnect() {
 
 void SmartCard::update() {
     // Reset card info
-    memset(&cardInfo, 0, sizeof(cardInfo));
+    cardInfo.uid = "";
+    cardInfo.accessCode = "";
+    cardInfo.cardType = "Empty";
 
     long lRet = SCardGetStatusChange(hContext, INFINITE, readerState, 1);
     if (lRet == SCARD_E_TIMEOUT) return;
@@ -102,9 +108,7 @@ void SmartCard::poll() {
         card_uid_len = 8;
     }
 
-    for (int i = 0; i < card_uid_len; i++) {
-        cardInfo.uid[i] = pbRecv[i];
-    }
+    hexToString(pbRecv, card_uid_len, cardInfo.uid);
 
     if (cardProtocol == SCARD_ATR_PROTOCOL_ISO14443_PART3) {
         // Send Load Key command
@@ -131,8 +135,12 @@ void SmartCard::poll() {
             return;
         }
 
-        memcpy(cardInfo.access_code, pbRecv + 6, 10);
-        cardInfo.card_type = 0; // Mifare
+        std::string block2Content;
+        // Convert pbRecv 6-16 to string
+        hexToString(pbRecv + 6, 10, block2Content);
+        lookUpAccessCode(block2Content);
+    } else if (cardProtocol == SCARD_ATR_PROTOCOL_FELICA_212K || cardProtocol == SCARD_ATR_PROTOCOL_FELICA_424K) {
+        lookUpAccessCode(cardInfo.uid);
     }
 
     Sleep(readCooldown);
@@ -222,9 +230,72 @@ long SmartCard::connectReader(DWORD shareMode, DWORD preferredProtocols) {
 }
 
 long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen) const {
-    long lRet = SCardTransmit(hCard, pci, cmd, cmdLen, nullptr, recv, recvLen);
+    long lRet = SCardTransmit(hCard, pci, cmd, static_cast<DWORD>(cmdLen), nullptr, recv, recvLen);
     if (lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to transmit: 0x%08X\n", __func__, module, lRet);
     }
     return lRet;
+}
+
+// Helper function to handle the response data
+size_t SmartCard::writeCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+    userp->append((char*)contents, size * nmemb);
+    return size * nmemb;
+}
+
+void SmartCard::lookUpAccessCode(const std::string& content) {
+    CURL* curl;
+    CURLcode res;
+    std::string readBuffer;
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    curl = curl_easy_init();
+    if (curl) {
+        // Set the URL for the request
+        curl_easy_setopt(curl, CURLOPT_URL, "https://card.bsnk.me/lookup");
+
+        // POST a json object {"card" : "content"}
+        nlohmann::json j;
+        j["card"] = content;
+        std::string postData = j.dump();
+
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
+
+        // Set up to receive the response data
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+
+        // Perform the request, res will get the return code
+        res = curl_easy_perform(curl);
+
+        // Check for errors
+        if (res != CURLE_OK)
+            std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+
+        // Parse the response
+        // Example response: {"type":"bng","errors":[],"ids":{"bng":"30760120652285557236"},"info":{"bng":{"rand_num":0,"product":0,"app":0,"namco_id":0,"bcd":0}}}
+        // Set cardInfo.cardType to type
+        nlohmann::json response = nlohmann::json::parse(readBuffer);
+        std::string cardType = response["type"];
+        cardInfo.cardType = cardType;
+
+        // Set access code to id
+        std::string id = response["ids"][cardType];
+        cardInfo.accessCode = id;
+
+        // Always cleanup
+        curl_easy_cleanup(curl);
+    }
+
+    curl_global_cleanup();
+}
+
+void SmartCard::hexToString(BYTE* hex, size_t len, std::string& str) {
+    std::stringstream ss;
+    ss << std::hex << std::uppercase;
+    for (size_t i = 0; i < len; i++) {
+        ss << std::setw(2) << std::setfill('0') << static_cast<int>(hex[i]);
+    }
+    str = ss.str();
 }
