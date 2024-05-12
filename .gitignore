@@ -64,3 +64,4 @@ bin/*
 
 .idea/*
 vkpkg_installed/*
+.vs/*

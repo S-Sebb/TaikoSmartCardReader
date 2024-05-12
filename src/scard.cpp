@@ -180,9 +180,18 @@ void SmartCard::handleCardStatusChange() {
 bool SmartCard::setupReader() {
     auto pcchReaders = SCARD_AUTOALLOCATE;
     long lRet = SCardListReaders(hContext, nullptr, (LPTSTR)&readerName, &pcchReaders);
-    if (lRet != SCARD_S_SUCCESS) {
-        printError("%s, %s: Failed to list readers: 0x%08X\n", __func__, module, lRet);
-        return false;
+    switch (lRet) {
+        case SCARD_E_NO_READERS_AVAILABLE:
+            printWarning("%s, %s: No readers available\n", __func__, module);
+            return false;
+        case SCARD_E_NO_MEMORY:
+            printError("%s, %s: Out of memory\n", __func__, module);
+            return false;
+        case SCARD_S_SUCCESS:
+            break;
+        default:
+            printError("%s, %s: Failed to list readers: 0x%08X\n", __func__, module, lRet);
+            return false;
     }
     if (pcchReaders > 0) {
         printInfo("%s, %s: Reader found: %s\n", __func__, module, readerName);
