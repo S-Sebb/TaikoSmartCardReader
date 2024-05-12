@@ -23,14 +23,13 @@ private:
     BYTE cardProtocol{};                // Protocol used by the card.
     int readCooldown = 500;               // Cooldown for reading the card.
 
-
     void handleCardStatusChange();                 // Handle changes in card status.
-    bool setupReader();                                           // Setup the card reader.
+    bool setupReader();                                           // Set up the card reader.
     bool sendPiccOperatingParams();                               // Send PICC operating parameters to the card.
     void poll(); // Poll the smart card reader for changes.
     bool readATR();                                               // Read the ATR of the card.
     bool connect(); // Connect to a specific reader.
     void disconnect();             // Disconnect from the smart card reader.
     long connectReader(DWORD shareMode, DWORD preferredProtocols); // Connect to a specific reader.
-    long transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, size_t recvLen); // Transmit data to the card.
+    long transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen) const; // Transmit data to the card.
 };

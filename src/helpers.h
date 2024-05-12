@@ -1,9 +1,8 @@
 #pragma once
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <windows.h>
 
 typedef int8_t i8;
@@ -18,7 +17,7 @@ typedef float f32;
 typedef double f64;
 typedef struct card_info
 {
-    int card_type;
+    int card_type; // 0: Mifare, 1: Felica
     uint8_t uid[8];
     BYTE access_code[10];
 } card_info_t;

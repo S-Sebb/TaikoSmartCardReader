@@ -17,7 +17,7 @@ SmartCard::~SmartCard() {
 }
 
 bool SmartCard::initialize() {
-    LONG lRet = SCardEstablishContext(SCARD_SCOPE_USER, nullptr, nullptr, &hContext);
+    long lRet = SCardEstablishContext(SCARD_SCOPE_USER, nullptr, nullptr, &hContext);
     if (lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to establish context: 0x%08X\n", __func__, module, lRet);
         return false;
@@ -46,7 +46,7 @@ void SmartCard::update() {
     // Reset card info
     memset(&cardInfo, 0, sizeof(cardInfo));
 
-    LONG lRet = SCardGetStatusChange(hContext, INFINITE, readerState, 1);
+    long lRet = SCardGetStatusChange(hContext, INFINITE, readerState, 1);
     if (lRet == SCARD_E_TIMEOUT) return;
     if (lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to get status change: 0x%08X\n", __func__, module, lRet);
@@ -87,16 +87,16 @@ void SmartCard::poll() {
 
     LPCSCARD_IO_REQUEST pci = activeProtocol == SCARD_PROTOCOL_T1 ? SCARD_PCI_T1 : SCARD_PCI_T0;
     DWORD cbRecv = maxApduSize;
-    cbRecv = maxApduSize;
     BYTE pbRecv[maxApduSize];
 
     // Send UID command
-    long lRet = transmit(pci, uidCmd, sizeof(uidCmd), pbRecv, cbRecv);
+    long lRet = transmit(pci, uidCmd, sizeof(uidCmd), pbRecv, &cbRecv);
     if (lRet != SCARD_S_SUCCESS) {
         disconnect();
         return;
     }
     int card_uid_len = (int)cbRecv - 2;
+
     if (card_uid_len > 8) {
         printWarning("%s (%s): Taking first 8 bytes of UID\n", __func__, module);
         card_uid_len = 8;
@@ -108,27 +108,31 @@ void SmartCard::poll() {
 
     if (cardProtocol == SCARD_ATR_PROTOCOL_ISO14443_PART3) {
         // Send Load Key command
-        lRet = transmit(pci, loadKeyCmd, sizeof(loadKeyCmd), pbRecv, cbRecv);
+        cbRecv = maxApduSize;
+        lRet = transmit(pci, loadKeyCmd, sizeof(loadKeyCmd), pbRecv, &cbRecv);
         if (lRet != SCARD_S_SUCCESS) {
             disconnect();
             return;
         }
 
+        cbRecv = maxApduSize;
         // Send Auth Block 2 command
-        lRet = transmit(pci, authBlock2Cmd, sizeof(authBlock2Cmd), pbRecv, cbRecv);
+        lRet = transmit(pci, authBlock2Cmd, sizeof(authBlock2Cmd), pbRecv, &cbRecv);
         if (lRet != SCARD_S_SUCCESS) {
             disconnect();
             return;
         }
 
+        cbRecv = maxApduSize;
         // Send Read Block 2 command
-        lRet = transmit(pci, readBlock2Cmd, sizeof(readBlock2Cmd), pbRecv, cbRecv);
+        lRet = transmit(pci, readBlock2Cmd, sizeof(readBlock2Cmd), pbRecv, &cbRecv);
         if (lRet != SCARD_S_SUCCESS) {
             disconnect();
             return;
         }
 
         memcpy(cardInfo.access_code, pbRecv + 6, 10);
+        cardInfo.card_type = 0; // Mifare
     }
 
     Sleep(readCooldown);
@@ -217,9 +221,8 @@ long SmartCard::connectReader(DWORD shareMode, DWORD preferredProtocols) {
     return lRet;
 }
 
-long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, size_t recvLen) {
-    DWORD cbRecv = recvLen;
-    long lRet = SCardTransmit(hCard, pci, cmd, cmdLen, nullptr, recv, &cbRecv);
+long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen) const {
+    long lRet = SCardTransmit(hCard, pci, cmd, cmdLen, nullptr, recv, recvLen);
     if (lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to transmit: 0x%08X\n", __func__, module, lRet);
     }

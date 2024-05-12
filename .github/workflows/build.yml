@@ -16,7 +16,7 @@ jobs:
       - name: Install depends
         run: sudo apt-get install -y mingw-w64 ninja-build nasm; pip3 install meson
       - name: Upgrade gcc
-        run: npx xpm install @xpack-dev-tools/mingw-w64-gcc@latest --verbose
+        run: npx xpm install @xpack-dev-tools/mingw-w64-gcc@latest --global --verbose
       - name: Make
         run: export PATH=$GITHUB_WORKSPACE/xpacks/.bin:$PATH && make setup dist-no-7z
       - uses: actions/upload-artifact@v4
