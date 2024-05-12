@@ -1,8 +1,0 @@
-{
-  "name": "taiko-smartcard-reader",
-  "version-string": "1.0.0",
-  "dependencies": [
-    "curl"
-  ],
-  "builtin-baseline": "943c5ef1c8f6b5e6ced092b242c8299caae2ff01"
-}
