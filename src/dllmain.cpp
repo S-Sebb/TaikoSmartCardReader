@@ -6,10 +6,9 @@
 #include <thread>
 #include <atomic>
 #include <sstream>
-#include <iomanip>
 #include <chrono>
 
-char module[] = "scardreader.dll";
+char module[] = "scardreader";
 
 std::thread readerThread;
 std::atomic<bool> initialized{false};
@@ -67,11 +66,11 @@ extern "C" {
             initialized = true;
 
             if (!scard.initialize()) {
-                printError("%s, %s: Failed to initialize SmartCard\n", __func__, module);
+                printWarning("%s, %s: SmartCardReader not initialized\n", __func__, module);
                 return;
             }
 
-            printInfo("%s, %s: SmartCard initialized\n", __func__, module);
+            printInfo("%s, %s: SmartCardReader initialized\n", __func__, module);
             stopFlag = false;
             readerThread = std::thread(readerPollThread);
         }

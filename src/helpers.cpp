@@ -1,14 +1,14 @@
 #include "helpers.h"
 #include <windows.h>
 
-void *consoleHandle = 0;
+void *consoleHandle = nullptr;
 
 void
 printColour (int colour, const char *format, ...) {
 	va_list args;
 	va_start (args, format);
 
-	if (consoleHandle == 0) consoleHandle = GetStdHandle (STD_OUTPUT_HANDLE);
+	if (consoleHandle == nullptr) consoleHandle = GetStdHandle (STD_OUTPUT_HANDLE);
 
 	SetConsoleTextAttribute (consoleHandle, colour);
 	vprintf (format, args);
