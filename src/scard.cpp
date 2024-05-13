@@ -108,7 +108,8 @@ void SmartCard::poll() {
         card_uid_len = 8;
     }
 
-    hexToString(pbRecv, card_uid_len, cardInfo.uid);
+    // Convert pbRecv 0-8 to string
+    cardInfo.uid = hexToString(pbRecv, card_uid_len);
 
     if (cardProtocol == SCARD_ATR_PROTOCOL_ISO14443_PART3) {
         // Send Load Key command
@@ -135,9 +136,8 @@ void SmartCard::poll() {
             return;
         }
 
-        std::string block2Content;
         // Convert pbRecv 6-16 to string
-        hexToString(pbRecv + 6, 10, block2Content);
+        std::string block2Content = hexToString(pbRecv + 6, 10);
         lookUpCard(block2Content);
     } else if (cardProtocol == SCARD_ATR_PROTOCOL_FELICA_212K || cardProtocol == SCARD_ATR_PROTOCOL_FELICA_424K) {
         lookUpCard(cardInfo.uid);
@@ -300,11 +300,11 @@ void SmartCard::lookUpCard(const std::string& content) {
     curl_global_cleanup();
 }
 
-void SmartCard::hexToString(BYTE* hex, size_t len, std::string& str) {
+std::string SmartCard::hexToString(BYTE* hex, size_t len) {
     std::stringstream ss;
     ss << std::hex << std::uppercase;
     for (size_t i = 0; i < len; i++) {
         ss << std::setw(2) << std::setfill('0') << static_cast<int>(hex[i]);
     }
-    str = ss.str();
+    return ss.str();
 }

@@ -42,6 +42,7 @@ void readerPollThread() {
         printInfo("Card Type: %s\n", scard.cardInfo.cardType.c_str());
         printInfo("Card UID: %s\n", scard.cardInfo.uid.c_str());
         printInfo("Access Code: %s\n", scard.cardInfo.accessCode.c_str());
+
         // Write access code to file
         std::ofstream fp("cards.dat");
         if (fp.is_open()) {
