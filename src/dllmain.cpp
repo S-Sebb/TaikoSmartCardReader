@@ -34,7 +34,7 @@ void readerPollThread() {
             continue;
         }
 
-        if (scard.cardInfo.cardType == "Unknown") {
+        if (scard.cardInfo.cardType == "unknown") {
             printWarning("Unknown card type\n");
             continue;
         }
