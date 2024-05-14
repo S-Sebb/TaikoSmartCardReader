@@ -1,18 +1,17 @@
 #include "scard.h"
 #include "helpers.h"
 #include <windows.h>
-#include <iostream>
 #include <fstream>
 #include <thread>
-#include <atomic>
 #include <sstream>
 #include <chrono>
+#include <mutex>
 
 char module[] = "scardreader";
 
 std::thread readerThread;
-std::atomic<bool> initialized{false};
-std::atomic<bool> stopFlag{false};
+bool initialized = false;
+bool stopFlag = false;
 SmartCard scard;
 
 void pressKey(WORD key) {
@@ -36,6 +35,11 @@ void readerPollThread() {
 
         if (scard.cardInfo.cardType == "unknown") {
             printWarning("Unknown card type\n");
+            continue;
+        }
+
+        if (!SmartCard::changeAccessCode(scard.cardInfo.uid, scard.cardInfo.accessCode)) {
+            printError("%s, %s: Failed to change access code, please check server status\n", __func__, module);
             continue;
         }
 
@@ -72,19 +76,29 @@ extern "C" {
             }
 
             printInfo("%s, %s: SmartCardReader initialized\n", __func__, module);
-            stopFlag = false;
-            readerThread = std::thread(readerPollThread);
         }
+
+        stopFlag = false;
+        readerThread = std::thread(readerPollThread);
     }
 
     __declspec(dllexport) void Exit() {
+        printInfo("%s, %s: Exiting SmartCardReader\n", __func__, module);
+        stopFlag = true;
+        if (readerThread.joinable()) {
+            readerThread.join();
+        }
+
         if (initialized) {
             scard.~SmartCard();
-            stopFlag = true;
-            if (readerThread.joinable()) {
-                readerThread.join();
-            }
             initialized = false;
+        }
+
+        // Create and signal named event
+        HANDLE hEvent = CreateEvent(nullptr, TRUE, FALSE, "PluginExitEvent");
+        if (hEvent) {
+            SetEvent(hEvent);
+            CloseHandle(hEvent);
         }
     }
 }

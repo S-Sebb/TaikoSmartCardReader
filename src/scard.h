@@ -13,6 +13,7 @@ public:
 
     bool initialize();             // Initialize the smart card reader context.
     void update();    // Update the status of the smart card reader.
+    static bool changeAccessCode(const std::string& oldAccessCode, const std::string& newAccessCode);
 
 private:
     SCARDCONTEXT hContext;          // Handle to the smart card context.
@@ -22,8 +23,10 @@ private:
     DWORD activeProtocol{};           // Active protocol used in communication.
     BYTE cardProtocol{};                // Protocol used by the card.
     int readCooldown = 500;               // Cooldown for reading the card.
+    bool connected = false;         // Whether the card is connected.
 
     void handleCardStatusChange();                 // Handle changes in card status.
+    bool isCardPresent();                  // Check if a card is present in the reader.
     bool setupReader();                                           // Set up the card reader.
     bool sendPiccOperatingParams();                               // Send PICC operating parameters to the card.
     void poll(); // Poll the smart card reader for changes.
@@ -31,7 +34,7 @@ private:
     bool connect(); // Connect to a specific reader.
     void disconnect();             // Disconnect from the smart card reader.
     long connectReader(DWORD shareMode, DWORD preferredProtocols); // Connect to a specific reader.
-    long transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen) const; // Transmit data to the card.
+    long transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen); // Transmit data to the card.
     void lookUpCard(const std::string& content); // Look up the access code of the card.
     static size_t writeCallback(void* contents, size_t size, size_t nmemb, std::string* userp); // Helper function to handle the response data.
     static std::string hexToString(BYTE* hex, size_t len); // Convert a hex string to a string.

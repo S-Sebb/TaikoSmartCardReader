@@ -13,7 +13,9 @@ SmartCard::SmartCard() : hContext(0), hCard(0), readerState{{nullptr}}, readerNa
 }
 
 SmartCard::~SmartCard() {
-    disconnect();
+    if (hCard && connected) {
+        disconnect();
+    }
     if (readerName) {
         SCardFreeMemory(hContext, readerName);
     }
@@ -30,20 +32,52 @@ bool SmartCard::initialize() {
 }
 
 bool SmartCard::connect() {
-    disconnect();
-    long lRet = connectReader(SCARD_SHARE_EXCLUSIVE, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1);
-    if (lRet != SCARD_S_SUCCESS) {
-        printError("%s, %s: Failed to connect to reader %s: 0x%08X\n", __func__, module, readerName, lRet);
-        return false;
+    int retryCount = 0;
+    int maxRetries = 100;
+    int retryDelay = 10;
+    long lRet;
+
+    if (connected) {
+        disconnect();
     }
-    return true;
+    
+    while (retryCount < maxRetries) {
+        if (!isCardPresent()) {
+            printWarning("%s, %s: No card present in the reader\n", __func__, module);
+            return false;
+        }
+
+        lRet = connectReader(SCARD_SHARE_EXCLUSIVE, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1);
+        if (lRet == SCARD_S_SUCCESS) {
+            connected = true;
+            return true;
+        } else if (lRet == SCARD_W_REMOVED_CARD) {
+            printWarning("%s, %s: Card was removed, retrying...\n", __func__, module);
+        }
+        retryCount++;
+        Sleep(retryDelay);
+    }
+    printError("%s, %s: Failed to connect to reader: 0x%08X\n", __func__, module, lRet);
+    return false;
 }
 
 void SmartCard::disconnect() {
     if (hCard) {
-        SCardDisconnect(hCard, SCARD_LEAVE_CARD);
+        SCardDisconnect(hCard, SCARD_RESET_CARD);
         hCard = 0;
     }
+    connected = false;
+}
+
+bool SmartCard::isCardPresent() {
+    readerState[0].dwCurrentState = SCARD_STATE_EMPTY;
+    long lRet = SCardGetStatusChange(hContext, 0, readerState, 1);
+    if (lRet != SCARD_S_SUCCESS) {
+        printError("%s, %s: Failed to get status change: 0x%08X\n", __func__, module, lRet);
+        return false;
+    }
+
+    return (readerState[0].dwEventState & SCARD_STATE_PRESENT) != 0;
 }
 
 void SmartCard::update() {
@@ -66,7 +100,9 @@ void SmartCard::poll() {
     if (!readerName) {
         return;
     }
-    connect();
+    if (!connect()) {
+        return;
+    }
 
     if (!readATR()) {
         disconnect();
@@ -143,8 +179,6 @@ void SmartCard::poll() {
         lookUpCard(cardInfo.uid);
     }
 
-    Sleep(readCooldown);
-
     disconnect();
 }
 
@@ -175,6 +209,8 @@ void SmartCard::handleCardStatusChange() {
         poll();  // Assuming `poll` handles detailed card interaction.
     }
     readerState[0].dwCurrentState = readerState[0].dwEventState;
+
+    Sleep(readCooldown);
 }
 
 bool SmartCard::setupReader() {
@@ -238,11 +274,29 @@ long SmartCard::connectReader(DWORD shareMode, DWORD preferredProtocols) {
     return lRet;
 }
 
-long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen) const {
-    long lRet = SCardTransmit(hCard, pci, cmd, static_cast<DWORD>(cmdLen), nullptr, recv, recvLen);
-    if (lRet != SCARD_S_SUCCESS) {
-        printError("%s, %s: Failed to transmit: 0x%08X\n", __func__, module, lRet);
+long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen) {
+    const int maxRetries = 3;
+    const int retryDelayMs = 500;
+    int retryCount = 0;
+    long lRet;
+
+    while (retryCount < maxRetries) {
+        lRet = SCardTransmit(hCard, pci, cmd, static_cast<DWORD>(cmdLen), nullptr, recv, recvLen);
+        if (lRet == SCARD_S_SUCCESS) {
+            return lRet;
+        } else if (lRet == SCARD_W_RESET_CARD || lRet == SCARD_W_REMOVED_CARD) {
+            printWarning("%s, %s: Card was reset/removed, please leave the card on, retrying... 0x%08X\n", __func__, module, lRet);
+            // Reconnect if the card was reset
+            if (!connect()) {
+                return lRet;
+            }
+        }
+
+        retryCount++;
+        Sleep(retryDelayMs);
     }
+
+    printError("%s, %s: Failed to transmit: 0x%08X\n", __func__, module, lRet);
     return lRet;
 }
 
@@ -307,4 +361,54 @@ std::string SmartCard::hexToString(BYTE* hex, size_t len) {
         ss << std::setw(2) << std::setfill('0') << static_cast<int>(hex[i]);
     }
     return ss.str();
+}
+
+bool SmartCard::changeAccessCode(const std::string& oldAccessCode, const std::string& newAccessCode) {
+    CURL* curl;
+    CURLcode res;
+    std::string readBuffer;
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    curl = curl_easy_init();
+
+    if (curl) {
+        std::string serverUrl = "http://169.254.222.99:80/api/Cards/ChangeAccessCode";
+
+        // Create JSON object
+        nlohmann::json requestData;
+        requestData["OldAccessCode"] = oldAccessCode;
+        requestData["NewAccessCode"] = newAccessCode;
+        std::string requestBody = requestData.dump();
+
+        struct curl_slist* headers = nullptr;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+
+        curl_easy_setopt(curl, CURLOPT_URL, serverUrl.c_str());
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, requestBody.c_str());
+
+        // Response handling
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+
+        // Perform the request
+        res = curl_easy_perform(curl);
+        if (res != CURLE_OK) {
+            std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+            curl_easy_cleanup(curl);
+            curl_slist_free_all(headers);
+            curl_global_cleanup();
+            return false;
+        }
+
+        // Parse the response
+        printInfo("Response: %s\n", readBuffer.c_str());
+        // Cleanup
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
+    }
+
+    curl_global_cleanup();
+    return true;
 }
