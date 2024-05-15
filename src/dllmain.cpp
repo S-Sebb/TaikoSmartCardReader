@@ -6,12 +6,13 @@
 #include <sstream>
 #include <chrono>
 #include <mutex>
+#include <atomic>
 
 char module[] = "scardreader";
 
 std::thread readerThread;
 bool initialized = false;
-bool stopFlag = false;
+std::atomic<bool> stopFlag(false);
 SmartCard scard;
 
 void pressKey(WORD key) {
@@ -26,7 +27,11 @@ void pressKey(WORD key) {
 }
 
 void readerPollThread() {
-    while (!stopFlag) {
+    while (!stopFlag.load()) {
+        if (stopFlag.load()) {
+            break;
+        }
+
         scard.update();
 
         if (scard.cardInfo.cardType == "Empty") {
@@ -64,41 +69,41 @@ void readerPollThread() {
 }
 
 extern "C" {
-    __declspec(dllexport) void Init() {
-        if (!initialized) {
-            scard = SmartCard();
+__declspec(dllexport) void Init() {
+    if (!initialized) {
+        scard = SmartCard();
 
-            initialized = true;
+        initialized = true;
 
-            if (!scard.initialize()) {
-                printWarning("%s, %s: SmartCardReader not initialized\n", __func__, module);
-                return;
-            }
-
-            printInfo("%s, %s: SmartCardReader initialized\n", __func__, module);
+        if (!scard.initialize()) {
+            printWarning("%s, %s: SmartCardReader not initialized\n", __func__, module);
+            return;
         }
 
-        stopFlag = false;
-        readerThread = std::thread(readerPollThread);
+        printInfo("%s, %s: SmartCardReader initialized\n", __func__, module);
     }
 
-    __declspec(dllexport) void Exit() {
-        printInfo("%s, %s: Exiting SmartCardReader\n", __func__, module);
-        stopFlag = true;
-        if (readerThread.joinable()) {
-            readerThread.join();
-        }
+    stopFlag.store(false);
+    readerThread = std::thread(readerPollThread);
+}
 
-        if (initialized) {
-            scard.~SmartCard();
-            initialized = false;
-        }
-
-        // Create and signal named event
-        HANDLE hEvent = CreateEvent(nullptr, TRUE, FALSE, "PluginExitEvent");
-        if (hEvent) {
-            SetEvent(hEvent);
-            CloseHandle(hEvent);
-        }
+__declspec(dllexport) void Exit() {
+    printInfo("%s, %s: Exiting SmartCardReader\n", __func__, module);
+    stopFlag.store(true);
+    if (readerThread.joinable()) {
+        readerThread.join();
     }
+
+    if (initialized) {
+        scard.~SmartCard();
+        initialized = false;
+    }
+
+    // Create and signal named event
+    HANDLE hEvent = CreateEvent(nullptr, TRUE, FALSE, "PluginExitEvent");
+    if (hEvent) {
+        SetEvent(hEvent);
+        CloseHandle(hEvent);
+    }
+}
 }

@@ -86,7 +86,7 @@ void SmartCard::update() {
     cardInfo.accessCode = "";
     cardInfo.cardType = "Empty";
 
-    long lRet = SCardGetStatusChange(hContext, INFINITE, readerState, 1);
+    long lRet = SCardGetStatusChange(hContext, readCooldown, readerState, 1);
     if (lRet == SCARD_E_TIMEOUT) return;
     if (lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to get status change: 0x%08X\n", __func__, module, lRet);
