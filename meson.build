@@ -32,7 +32,7 @@ opt_var.add_cmake_defines({'BUILD_EXAMPLES': false})
 scardreader_dll = shared_library(
     'scardreader',
     include_directories: [
-        'src'
+        'src',
     ],
     vs_module_defs: 'src/scardreader.def',
     sources: [
@@ -43,7 +43,7 @@ scardreader_dll = shared_library(
     dependencies: [
         winscard_lib,
         curl_dep,
-        nlohmann_json_dep
+        nlohmann_json_dep,
     ],
     install : true,
     name_prefix: ''

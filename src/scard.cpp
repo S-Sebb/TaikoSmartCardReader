@@ -42,17 +42,15 @@ bool SmartCard::connect() {
     }
     
     while (retryCount < maxRetries) {
-        if (!isCardPresent()) {
-            printWarning("%s, %s: No card present in the reader\n", __func__, module);
-            return false;
-        }
-
         lRet = connectReader(SCARD_SHARE_EXCLUSIVE, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1);
         if (lRet == SCARD_S_SUCCESS) {
             connected = true;
             return true;
         } else if (lRet == SCARD_W_REMOVED_CARD) {
-            printWarning("%s, %s: Card was removed, retrying...\n", __func__, module);
+            if (!isCardPresent()) {
+                printWarning("%s, %s: Card was removed!\n", __func__, module);
+                return false;
+            }
         }
         retryCount++;
         Sleep(retryDelay);
@@ -84,7 +82,7 @@ void SmartCard::update() {
     // Reset card info
     cardInfo.uid = "";
     cardInfo.accessCode = "";
-    cardInfo.cardType = "Empty";
+    cardInfo.cardType = "empty";
 
     long lRet = SCardGetStatusChange(hContext, readCooldown, readerState, 1);
     if (lRet == SCARD_E_TIMEOUT) return;
@@ -174,6 +172,7 @@ void SmartCard::poll() {
 
         // Convert pbRecv 6-16 to string
         std::string block2Content = hexToString(pbRecv + 6, 10);
+        printInfo("%s (%s): Block 2 content: %s\n", __func__, module, block2Content.c_str());
         lookUpCard(block2Content);
     } else if (cardProtocol == SCARD_ATR_PROTOCOL_FELICA_212K || cardProtocol == SCARD_ATR_PROTOCOL_FELICA_424K) {
         lookUpCard(cardInfo.uid);
@@ -276,7 +275,6 @@ long SmartCard::connectReader(DWORD shareMode, DWORD preferredProtocols) {
 
 long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen) {
     const int maxRetries = 3;
-    const int retryDelayMs = 500;
     int retryCount = 0;
     long lRet;
 
@@ -293,7 +291,7 @@ long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen
         }
 
         retryCount++;
-        Sleep(retryDelayMs);
+        Sleep(readCooldown);
     }
 
     printError("%s, %s: Failed to transmit: 0x%08X\n", __func__, module, lRet);
@@ -310,6 +308,8 @@ void SmartCard::lookUpCard(const std::string& content) {
     CURL* curl;
     CURLcode res;
     std::string readBuffer;
+    const int maxRetries = 3;
+    const long timeoutSeconds = 3;
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
@@ -329,23 +329,53 @@ void SmartCard::lookUpCard(const std::string& content) {
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
 
-        // Perform the request, res will get the return code
-        res = curl_easy_perform(curl);
+        // Set timeout
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeoutSeconds);
 
-        // Check for errors
-        if (res != CURLE_OK)
-            std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+        int retryCount = 0;
+        bool success = false;
+        while (retryCount < maxRetries) {
+            res = curl_easy_perform(curl);
+            if (res == CURLE_OK) {
+                success = true;
+                break;
+            }
+            retryCount++;
+        }
+
+        if (!success) {
+            printError("%s, %s: Failed to perform request: %s\n", __func__, module, curl_easy_strerror(res));
+            curl_easy_cleanup(curl);
+            curl_global_cleanup();
+            return;
+        }
 
         // Parse the response
         // Example response: {"type":"bng","errors":[],"ids":{"bng":"30760120652285557236"},"info":{"bng":{"rand_num":0,"product":0,"app":0,"namco_id":0,"bcd":0}}}
         // Set cardInfo.cardType to type
-        nlohmann::json response = nlohmann::json::parse(readBuffer);
-        std::string cardType = response["type"];
-        cardInfo.cardType = cardType;
 
-        // Set access code to id
-        std::string id = response["ids"][cardType];
-        cardInfo.accessCode = id;
+        nlohmann::json response = nlohmann::json::parse(readBuffer);
+        printInfo("CardLookUp response: %s\n", response.dump().c_str());
+        std::string cardType = response["type"];
+
+        if (cardType == "idm"){
+            if (response["ids"].contains("aicc")) {
+                cardInfo.cardType = "aicc";
+                cardInfo.accessCode = response["ids"]["aicc"];
+            } else {
+                cardInfo.cardType = "unknown";
+                cardInfo.accessCode = "";
+            }
+        } else if (cardType == "bng") {
+            cardInfo.cardType = cardType;
+            cardInfo.accessCode = response["ids"]["bng"];
+        } else if (cardType == "sega") {
+            cardInfo.cardType = cardType;
+            cardInfo.accessCode = response["ids"]["sega"];
+        } else {
+            cardInfo.cardType = "unknown";
+            cardInfo.accessCode = "";
+        }
 
         // Always cleanup
         curl_easy_cleanup(curl);
@@ -367,12 +397,14 @@ bool SmartCard::changeAccessCode(const std::string& oldAccessCode, const std::st
     CURL* curl;
     CURLcode res;
     std::string readBuffer;
+    const int maxRetries = 3;
+    const long timeoutSeconds = 3;
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl = curl_easy_init();
 
     if (curl) {
-        std::string serverUrl = "http://169.254.222.99:80/api/Cards/ChangeAccessCode";
+        std::string serverUrl = "http://169.254.0.241:80/api/Cards/ChangeAccessCode";
 
         // Create JSON object
         nlohmann::json requestData;
@@ -392,10 +424,22 @@ bool SmartCard::changeAccessCode(const std::string& oldAccessCode, const std::st
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
 
-        // Perform the request
-        res = curl_easy_perform(curl);
-        if (res != CURLE_OK) {
-            std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+        // Set timeout
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeoutSeconds);
+
+        int retryCount = 0;
+        bool success = false;
+        while (retryCount < maxRetries) {
+            res = curl_easy_perform(curl);
+            if (res == CURLE_OK) {
+                success = true;
+                break;
+            }
+            retryCount++;
+        }
+
+        if (!success) {
+            printError("%s, %s: Failed to perform request: %s\n", __func__, module, curl_easy_strerror(res));
             curl_easy_cleanup(curl);
             curl_slist_free_all(headers);
             curl_global_cleanup();

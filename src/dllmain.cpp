@@ -34,17 +34,13 @@ void readerPollThread() {
 
         scard.update();
 
-        if (scard.cardInfo.cardType == "Empty") {
+        if (scard.cardInfo.cardType == "empty") {
             continue;
         }
 
         if (scard.cardInfo.cardType == "unknown") {
             printWarning("Unknown card type\n");
-            continue;
-        }
-
-        if (!SmartCard::changeAccessCode(scard.cardInfo.uid, scard.cardInfo.accessCode)) {
-            printError("%s, %s: Failed to change access code, please check server status\n", __func__, module);
+            printInfo("Card UID: %s\n", scard.cardInfo.uid.c_str());
             continue;
         }
 
@@ -52,14 +48,20 @@ void readerPollThread() {
         printInfo("Card UID: %s\n", scard.cardInfo.uid.c_str());
         printInfo("Access Code: %s\n", scard.cardInfo.accessCode.c_str());
 
+        if (!SmartCard::changeAccessCode(scard.cardInfo.uid, scard.cardInfo.accessCode)) {
+            printError("%s, %s: Failed to change access code, please check server status\n", __func__, module);
+            continue;
+        }
+
         // Write access code to file
         std::ofstream fp("cards.dat");
         if (fp.is_open()) {
             fp << scard.cardInfo.accessCode;
+            fp.close();
         } else {
             printError("%s, %s: Failed to open cards.dat\n", __func__, module);
         }
-
+        
         // Press F3 key
         pressKey(0x72);
 
