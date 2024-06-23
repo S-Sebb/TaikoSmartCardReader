@@ -68,8 +68,28 @@ void SmartCard::disconnect() {
 }
 
 bool SmartCard::isCardPresent() {
+    int retryCount = 0;
+    int maxRetries = 100;
+    int retryDelay = 10;
+
     readerState[0].dwCurrentState = SCARD_STATE_EMPTY;
     long lRet = SCardGetStatusChange(hContext, 0, readerState, 1);
+    while (lRet == SCARD_E_SERVICE_STOPPED || lRet == SCARD_E_NO_SERVICE || lRet == SCARD_E_NO_READERS_AVAILABLE) {
+        printWarning("%s, %s: Service stopped, no service or no readers available, attempting to reestablish context\n", __func__, module);
+        if (!initialize()) {
+            printError("%s, %s: Failed to reestablish context: 0x%08X\n", __func__, module, lRet);
+            return false;
+        }
+
+        lRet = SCardGetStatusChange(hContext, 0, readerState, 1);
+        retryCount++;
+        if (retryCount >= maxRetries) {
+            printError("%s, %s: Failed to get status change: 0x%08X\n", __func__, module, lRet);
+            return false;
+        }
+        Sleep(retryDelay);
+    }
+
     if (lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to get status change: 0x%08X\n", __func__, module, lRet);
         return false;
@@ -79,6 +99,10 @@ bool SmartCard::isCardPresent() {
 }
 
 void SmartCard::update() {
+    int retryCount = 0;
+    int maxRetries = 100;
+    int retryDelay = 10;
+
     // Reset card info
     cardInfo.uid = "";
     cardInfo.accessCode = "";
@@ -86,6 +110,22 @@ void SmartCard::update() {
 
     long lRet = SCardGetStatusChange(hContext, readCooldown, readerState, 1);
     if (lRet == SCARD_E_TIMEOUT) return;
+    while (lRet == SCARD_E_SERVICE_STOPPED || lRet == SCARD_E_NO_SERVICE || lRet == SCARD_E_NO_READERS_AVAILABLE) {
+        printWarning("%s, %s: Service stopped, no service or no readers available, attempting to reestablish context\n", __func__, module);
+        if (!initialize()) {
+            printError("%s, %s: Failed to reestablish context: 0x%08X\n", __func__, module, lRet);
+            return;
+        }
+
+        lRet = SCardGetStatusChange(hContext, readCooldown, readerState, 1);
+        retryCount++;
+        if (retryCount >= maxRetries) {
+            printError("%s, %s: Failed to get status change: 0x%08X\n", __func__, module, lRet);
+            return;
+        }
+        Sleep(retryDelay);
+    }
+
     if (lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to get status change: 0x%08X\n", __func__, module, lRet);
         return;

@@ -1,5 +1,5 @@
 # Set library type to static
-project('TaikoSmartcardReader', 'cpp', version: '1.0.0', default_options : ['cpp_std=c++20', 'buildtype=release', 'default_library=static'])
+project('TaikoSmartCardReader', 'cpp', version: '1.0.0', default_options : ['cpp_std=c++20', 'buildtype=release', 'default_library=static'])
 cmake = import('cmake')
 opt_var = cmake.subproject_options()
 opt_var.set_override_option('cpp_std', 'c++20')
