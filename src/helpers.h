@@ -1,9 +1,5 @@
 #pragma once
-#include <cstddef>
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <windows.h>
 #include <string>
 
 typedef int8_t i8;

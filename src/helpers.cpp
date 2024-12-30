@@ -4,7 +4,7 @@
 void *consoleHandle = nullptr;
 
 void
-printColour (int colour, const char *format, ...) {
+printColour (const int colour, const char *format, ...) {
 	va_list args;
 	va_start (args, format);
 

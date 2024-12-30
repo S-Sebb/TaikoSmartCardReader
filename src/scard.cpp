@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <sstream>
 #include <iomanip>
+#include <toml++/toml.h>
 
 extern char module[];
 
@@ -23,9 +24,16 @@ SmartCard::~SmartCard() {
 }
 
 bool SmartCard::initialize() {
-    long lRet = SCardEstablishContext(SCARD_SCOPE_USER, nullptr, nullptr, &hContext);
-    if (lRet != SCARD_S_SUCCESS) {
+    if (const long lRet = SCardEstablishContext(SCARD_SCOPE_USER, nullptr, nullptr, &hContext); lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to establish context: 0x%08X\n", __func__, module, lRet);
+        return false;
+    }
+    // Read serverUrl from config.toml
+    try {
+        toml::table config = toml::parse_file("config.toml");
+        serverUrl = config["amauth"]["server"].value_or("");
+    } catch (const std::exception& e) {
+        printError("%s, %s: Failed to read config.toml: %s\n", __func__, module, e.what());
         return false;
     }
     return setupReader();
@@ -33,20 +41,21 @@ bool SmartCard::initialize() {
 
 bool SmartCard::connect() {
     int retryCount = 0;
-    int maxRetries = 100;
-    int retryDelay = 10;
-    long lRet;
+    constexpr int maxRetries = 100;
+    long lRet = 0;
 
     if (connected) {
         disconnect();
     }
     
     while (retryCount < maxRetries) {
+        constexpr int retryDelay = 10;
         lRet = connectReader(SCARD_SHARE_EXCLUSIVE, SCARD_PROTOCOL_T0 | SCARD_PROTOCOL_T1);
         if (lRet == SCARD_S_SUCCESS) {
             connected = true;
             return true;
-        } else if (lRet == SCARD_W_REMOVED_CARD) {
+        }
+        if (lRet == SCARD_W_REMOVED_CARD) {
             if (!isCardPresent()) {
                 printWarning("%s, %s: Card was removed!\n", __func__, module);
                 return false;
@@ -69,12 +78,11 @@ void SmartCard::disconnect() {
 
 bool SmartCard::isCardPresent() {
     int retryCount = 0;
-    int maxRetries = 100;
-    int retryDelay = 10;
 
     readerState[0].dwCurrentState = SCARD_STATE_EMPTY;
     long lRet = SCardGetStatusChange(hContext, 0, readerState, 1);
     while (lRet == SCARD_E_SERVICE_STOPPED || lRet == SCARD_E_NO_SERVICE || lRet == SCARD_E_NO_READERS_AVAILABLE) {
+        constexpr int retryDelay = 10;
         printWarning("%s, %s: Service stopped, no service or no readers available, attempting to reestablish context\n", __func__, module);
         if (!initialize()) {
             printError("%s, %s: Failed to reestablish context: 0x%08X\n", __func__, module, lRet);
@@ -83,7 +91,7 @@ bool SmartCard::isCardPresent() {
 
         lRet = SCardGetStatusChange(hContext, 0, readerState, 1);
         retryCount++;
-        if (retryCount >= maxRetries) {
+        if (constexpr int maxRetries = 100; retryCount >= maxRetries) {
             printError("%s, %s: Failed to get status change: 0x%08X\n", __func__, module, lRet);
             return false;
         }
@@ -100,8 +108,6 @@ bool SmartCard::isCardPresent() {
 
 void SmartCard::update() {
     int retryCount = 0;
-    int maxRetries = 100;
-    int retryDelay = 10;
 
     // Reset card info
     cardInfo.uid = "";
@@ -111,6 +117,7 @@ void SmartCard::update() {
     long lRet = SCardGetStatusChange(hContext, readCooldown, readerState, 1);
     if (lRet == SCARD_E_TIMEOUT) return;
     while (lRet == SCARD_E_SERVICE_STOPPED || lRet == SCARD_E_NO_SERVICE || lRet == SCARD_E_NO_READERS_AVAILABLE) {
+        constexpr int retryDelay = 10;
         printWarning("%s, %s: Service stopped, no service or no readers available, attempting to reestablish context\n", __func__, module);
         if (!initialize()) {
             printError("%s, %s: Failed to reestablish context: 0x%08X\n", __func__, module, lRet);
@@ -119,7 +126,7 @@ void SmartCard::update() {
 
         lRet = SCardGetStatusChange(hContext, readCooldown, readerState, 1);
         retryCount++;
-        if (retryCount >= maxRetries) {
+        if (constexpr int maxRetries = 100; retryCount >= maxRetries) {
             printError("%s, %s: Failed to get status change: 0x%08X\n", __func__, module, lRet);
             return;
         }
@@ -165,7 +172,7 @@ void SmartCard::poll() {
         return;
     }
 
-    LPCSCARD_IO_REQUEST pci = activeProtocol == SCARD_PROTOCOL_T1 ? SCARD_PCI_T1 : SCARD_PCI_T0;
+    const LPCSCARD_IO_REQUEST pci = activeProtocol == SCARD_PROTOCOL_T1 ? SCARD_PCI_T1 : SCARD_PCI_T0;
     DWORD cbRecv = maxApduSize;
     BYTE pbRecv[maxApduSize];
 
@@ -175,7 +182,7 @@ void SmartCard::poll() {
         disconnect();
         return;
     }
-    int card_uid_len = (int)cbRecv - 2;
+    int card_uid_len = static_cast<int>(cbRecv) - 2;
 
     if (card_uid_len > 8) {
         printWarning("%s (%s): Taking first 8 bytes of UID\n", __func__, module);
@@ -211,11 +218,11 @@ void SmartCard::poll() {
         }
 
         // Convert pbRecv 6-16 to string
-        std::string block2Content = hexToString(pbRecv + 6, 10);
+        const std::string block2Content = hexToString(pbRecv + 6, 10);
         printInfo("%s (%s): Block 2 content: %s\n", __func__, module, block2Content.c_str());
-        lookUpCard(block2Content);
+        lookUpCard(cardInfo.uid, block2Content);
     } else if (cardProtocol == SCARD_ATR_PROTOCOL_FELICA_212K || cardProtocol == SCARD_ATR_PROTOCOL_FELICA_424K) {
-        lookUpCard(cardInfo.uid);
+        lookUpCard(cardInfo.uid, "");
     }
 
     disconnect();
@@ -226,8 +233,7 @@ bool SmartCard::readATR() {
     DWORD atrLen = sizeof(atr);
     TCHAR szReader[200];
     DWORD cchReader = 200;
-    long lRet = SCardStatus(hCard, szReader, &cchReader, nullptr, nullptr, atr, &atrLen);
-    if (lRet != SCARD_S_SUCCESS) {
+    if (const long lRet = SCardStatus(hCard, szReader, &cchReader, nullptr, nullptr, atr, &atrLen); lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to read ATR: 0x%08X\n", __func__, module, lRet);
         return false;
     }
@@ -236,8 +242,8 @@ bool SmartCard::readATR() {
 }
 
 void SmartCard::handleCardStatusChange() {
-    DWORD newState = readerState[0].dwEventState ^ SCARD_STATE_CHANGED;
-    bool wasCardPresent = (readerState[0].dwCurrentState & SCARD_STATE_PRESENT) > 0;
+    const DWORD newState = readerState[0].dwEventState ^ SCARD_STATE_CHANGED;
+    const bool wasCardPresent = (readerState[0].dwCurrentState & SCARD_STATE_PRESENT) > 0;
     if (newState & SCARD_STATE_UNAVAILABLE) {
         printError("Card reader unavailable\n");
         Sleep(readCooldown);
@@ -254,8 +260,7 @@ void SmartCard::handleCardStatusChange() {
 
 bool SmartCard::setupReader() {
     auto pcchReaders = SCARD_AUTOALLOCATE;
-    long lRet = SCardListReaders(hContext, nullptr, (LPTSTR)&readerName, &pcchReaders);
-    switch (lRet) {
+    switch (const long lRet = SCardListReaders(hContext, nullptr, reinterpret_cast<LPTSTR>(&readerName), &pcchReaders)) {
         case SCARD_E_NO_READERS_AVAILABLE:
             printWarning("%s, %s: No readers available\n", __func__, module);
             return false;
@@ -297,9 +302,8 @@ bool SmartCard::sendPiccOperatingParams() {
         printError("%s, %s: Failed to send PICC operating parameters: 0x%08X\n", __func__, module, lRet);
         disconnect();
         return false;
-    } else {
-        printInfo("%s, %s: PICC operating parameters set\n", __func__, module);
     }
+    printInfo("%s, %s: PICC operating parameters set\n", __func__, module);
 
     disconnect();
     memset(&readerState[0], 0, sizeof(SCARD_READERSTATE));
@@ -309,20 +313,21 @@ bool SmartCard::sendPiccOperatingParams() {
 }
 
 long SmartCard::connectReader(DWORD shareMode, DWORD preferredProtocols) {
-    long lRet = SCardConnect(hContext, readerName, shareMode, preferredProtocols, &hCard, &activeProtocol);
+    const long lRet = SCardConnect(hContext, readerName, shareMode, preferredProtocols, &hCard, &activeProtocol);
     return lRet;
 }
 
 long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen, BYTE* recv, DWORD* recvLen) {
-    const int maxRetries = 3;
+    constexpr int maxRetries = 3;
     int retryCount = 0;
-    long lRet;
+    long lRet = 0;
 
     while (retryCount < maxRetries) {
         lRet = SCardTransmit(hCard, pci, cmd, static_cast<DWORD>(cmdLen), nullptr, recv, recvLen);
         if (lRet == SCARD_S_SUCCESS) {
             return lRet;
-        } else if (lRet == SCARD_W_RESET_CARD || lRet == SCARD_W_REMOVED_CARD) {
+        }
+        if (lRet == SCARD_W_RESET_CARD || lRet == SCARD_W_REMOVED_CARD) {
             printWarning("%s, %s: Card was reset/removed, please leave the card on, retrying... 0x%08X\n", __func__, module, lRet);
             // Reconnect if the card was reset
             if (!connect()) {
@@ -340,30 +345,35 @@ long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen
 
 // Helper function to handle the response data
 size_t SmartCard::writeCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
-    userp->append((char*)contents, size * nmemb);
+    userp->append(static_cast<char *>(contents), size * nmemb);
     return size * nmemb;
 }
 
-void SmartCard::lookUpCard(const std::string& content) {
-    CURL* curl;
-    CURLcode res;
+void SmartCard::lookUpCard(const std::string& uid, const std::string& accessCode) {
+    CURLcode res = {};
     std::string readBuffer;
-    const int maxRetries = 3;
-    const long timeoutSeconds = 3;
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    curl = curl_easy_init();
-    if (curl) {
-        // Set the URL for the request
-        curl_easy_setopt(curl, CURLOPT_URL, "https://card.bsnk.me/lookup");
+    if (CURL *curl = curl_easy_init()) {
+        constexpr long timeoutSeconds = 15;
+        constexpr int maxRetries = 3;
+        // Add /api/LookUpCard to the server URL
+        const std::string url = serverUrl + "/api/Cards/LookUpCard";
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 
-        // POST a json object {"card" : "content"}
+        // POST a json object {"UId" : "uid", "AccessCode" : "accessCode"}
         nlohmann::json j;
-        j["card"] = content;
-        std::string postData = j.dump();
+        j["UId"] = uid;
+        j["AccessCode"] = accessCode;
+        const std::string postData = j.dump();
 
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
+
+        // Set Content-Type header to application/json
+        curl_slist *headers = nullptr;
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
         // Set up to receive the response data
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
@@ -394,27 +404,14 @@ void SmartCard::lookUpCard(const std::string& content) {
         // Example response: {"type":"bng","errors":[],"ids":{"bng":"30760120652285557236"},"info":{"bng":{"rand_num":0,"product":0,"app":0,"namco_id":0,"bcd":0}}}
         // Set cardInfo.cardType to type
 
-        nlohmann::json response = nlohmann::json::parse(readBuffer);
-        printInfo("CardLookUp response: %s\n", response.dump().c_str());
-        std::string cardType = response["type"];
-
-        if (cardType == "idm"){
-            if (response["ids"].contains("aicc")) {
-                cardInfo.cardType = "aicc";
-                cardInfo.accessCode = response["ids"]["aicc"];
-            } else {
-                cardInfo.cardType = "unknown";
-                cardInfo.accessCode = "";
-            }
-        } else if (cardType == "bng") {
-            cardInfo.cardType = cardType;
-            cardInfo.accessCode = response["ids"]["bng"];
-        } else if (cardType == "sega") {
-            cardInfo.cardType = cardType;
-            cardInfo.accessCode = response["ids"]["sega"];
-        } else {
-            cardInfo.cardType = "unknown";
-            cardInfo.accessCode = "";
+        try {
+            nlohmann::json response = nlohmann::json::parse(readBuffer);
+            printInfo("CardLookUp response: %s\n", response.dump().c_str());
+            cardInfo.cardType = response["cardType"].get<std::string>();
+            cardInfo.accessCode = response["accessCode"].get<std::string>();
+        }
+        catch (const std::exception& e) {
+            printError("%s, %s: Failed to parse response: %s\n", __func__, module, e.what());
         }
 
         // Always cleanup
@@ -424,75 +421,11 @@ void SmartCard::lookUpCard(const std::string& content) {
     curl_global_cleanup();
 }
 
-std::string SmartCard::hexToString(BYTE* hex, size_t len) {
+std::string SmartCard::hexToString(const BYTE* hex, const size_t len) {
     std::stringstream ss;
     ss << std::hex << std::uppercase;
     for (size_t i = 0; i < len; i++) {
         ss << std::setw(2) << std::setfill('0') << static_cast<int>(hex[i]);
     }
     return ss.str();
-}
-
-bool SmartCard::changeAccessCode(const std::string& oldAccessCode, const std::string& newAccessCode) {
-    CURL* curl;
-    CURLcode res;
-    std::string readBuffer;
-    const int maxRetries = 3;
-    const long timeoutSeconds = 3;
-
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
-
-    if (curl) {
-        std::string serverUrl = "http://169.254.0.241:80/api/Cards/ChangeAccessCode";
-
-        // Create JSON object
-        nlohmann::json requestData;
-        requestData["OldAccessCode"] = oldAccessCode;
-        requestData["NewAccessCode"] = newAccessCode;
-        std::string requestBody = requestData.dump();
-
-        struct curl_slist* headers = nullptr;
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-
-        curl_easy_setopt(curl, CURLOPT_URL, serverUrl.c_str());
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, requestBody.c_str());
-
-        // Response handling
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-
-        // Set timeout
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeoutSeconds);
-
-        int retryCount = 0;
-        bool success = false;
-        while (retryCount < maxRetries) {
-            res = curl_easy_perform(curl);
-            if (res == CURLE_OK) {
-                success = true;
-                break;
-            }
-            retryCount++;
-        }
-
-        if (!success) {
-            printError("%s, %s: Failed to perform request: %s\n", __func__, module, curl_easy_strerror(res));
-            curl_easy_cleanup(curl);
-            curl_slist_free_all(headers);
-            curl_global_cleanup();
-            return false;
-        }
-
-        // Parse the response
-        printInfo("Response: %s\n", readBuffer.c_str());
-        // Cleanup
-        curl_easy_cleanup(curl);
-        curl_slist_free_all(headers);
-    }
-
-    curl_global_cleanup();
-    return true;
 }

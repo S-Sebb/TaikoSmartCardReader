@@ -5,18 +5,17 @@
 #include <thread>
 #include <sstream>
 #include <chrono>
-#include <mutex>
 #include <atomic>
 
 char module[] = "scardreader";
 
 std::thread readerThread;
 bool initialized = false;
-std::atomic<bool> stopFlag(false);
-SmartCard scard;
+std::atomic stopFlag(false);
+SmartCard sCard;
 
-void pressKey(WORD key) {
-    INPUT ip = {0};
+void pressKey(const WORD key) {
+    INPUT ip = {};
     ip.type = INPUT_KEYBOARD;
     ip.ki.wVk = key;
     SendInput(1, &ip, sizeof(INPUT));
@@ -32,31 +31,31 @@ void readerPollThread() {
             break;
         }
 
-        scard.update();
+        sCard.update();
 
-        if (scard.cardInfo.cardType == "empty") {
+        if (sCard.cardInfo.cardType == "empty") {
             continue;
         }
 
-        if (scard.cardInfo.cardType == "unknown") {
+        if (sCard.cardInfo.cardType == "unknown") {
             printWarning("Unknown card type\n");
-            printInfo("Card UID: %s\n", scard.cardInfo.uid.c_str());
+            printInfo("Card UID: %s\n", sCard.cardInfo.uid.c_str());
             continue;
         }
 
-        printInfo("Card Type: %s\n", scard.cardInfo.cardType.c_str());
-        printInfo("Card UID: %s\n", scard.cardInfo.uid.c_str());
-        printInfo("Access Code: %s\n", scard.cardInfo.accessCode.c_str());
-
-        if (!SmartCard::changeAccessCode(scard.cardInfo.uid, scard.cardInfo.accessCode)) {
-            printError("%s, %s: Failed to change access code, please check server status\n", __func__, module);
+        if (sCard.cardInfo.cardType == "error") {
+            printError("Error during lookUpCard request\n");
+            printInfo("Card UID: %s\n", sCard.cardInfo.uid.c_str());
             continue;
         }
+
+        printInfo("Card Type: %s\n", sCard.cardInfo.cardType.c_str());
+        printInfo("Card UID: %s\n", sCard.cardInfo.uid.c_str());
+        printInfo("Access Code: %s\n", sCard.cardInfo.accessCode.c_str());
 
         // Write access code to file
-        std::ofstream fp("cards.dat");
-        if (fp.is_open()) {
-            fp << scard.cardInfo.accessCode;
+        if (std::ofstream fp("cards.dat"); fp.is_open()) {
+            fp << sCard.cardInfo.accessCode;
             fp.close();
         } else {
             printError("%s, %s: Failed to open cards.dat\n", __func__, module);
@@ -73,11 +72,11 @@ void readerPollThread() {
 extern "C" {
 __declspec(dllexport) void Init() {
     if (!initialized) {
-        scard = SmartCard();
+        sCard = SmartCard();
 
         initialized = true;
 
-        if (!scard.initialize()) {
+        if (!sCard.initialize()) {
             printWarning("%s, %s: SmartCardReader not initialized\n", __func__, module);
             return;
         }
@@ -89,6 +88,8 @@ __declspec(dllexport) void Init() {
     readerThread = std::thread(readerPollThread);
 }
 
+
+
 __declspec(dllexport) void Exit() {
     printInfo("%s, %s: Exiting SmartCardReader\n", __func__, module);
     stopFlag.store(true);
@@ -97,15 +98,8 @@ __declspec(dllexport) void Exit() {
     }
 
     if (initialized) {
-        scard.~SmartCard();
+        sCard.~SmartCard();
         initialized = false;
-    }
-
-    // Create and signal named event
-    HANDLE hEvent = CreateEvent(nullptr, TRUE, FALSE, "PluginExitEvent");
-    if (hEvent) {
-        SetEvent(hEvent);
-        CloseHandle(hEvent);
     }
 }
 }

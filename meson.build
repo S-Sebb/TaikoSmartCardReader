@@ -17,6 +17,7 @@ add_project_arguments(
 winscard_lib = cpp.find_library('winscard', required: true)
 nlohmann_json_dep = dependency('nlohmann_json', fallback: ['nlohmann_json', 'nlohmann_json_dep'], static: true)
 curl_dep = dependency('curl', fallback: ['curl', 'curl_dep'], static: true)
+tomlplusplus_dep = dependency('tomlplusplus', fallback: ['tomlplusplus', 'tomlplusplus_dep'], static: true)
 
 add_project_link_arguments(
     cpp.get_supported_arguments(
@@ -38,12 +39,14 @@ scardreader_dll = shared_library(
     sources: [
         'src/dllmain.cpp',
         'src/helpers.cpp',
-        'src/scard.cpp'
+        'src/scard.cpp',
+        'src/logger.cpp'
     ],
     dependencies: [
         winscard_lib,
         curl_dep,
         nlohmann_json_dep,
+        tomlplusplus_dep
     ],
     install : true,
     name_prefix: ''
