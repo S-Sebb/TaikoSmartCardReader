@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
 
 typedef int8_t i8;
 typedef int16_t i16;
@@ -27,3 +28,4 @@ typedef struct cardInfo
 #define printError(format, ...)   printColour (ERROR_COLOUR, format, ##__VA_ARGS__)
 
 void printColour (int colour, const char *format, ...);
+std::vector<uint8_t> decryptSPAD0(const std::vector<uint8_t>& spad0);

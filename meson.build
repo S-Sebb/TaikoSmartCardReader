@@ -39,8 +39,7 @@ scardreader_dll = shared_library(
     sources: [
         'src/dllmain.cpp',
         'src/helpers.cpp',
-        'src/scard.cpp',
-        'src/logger.cpp'
+        'src/scard.cpp'
     ],
     dependencies: [
         winscard_lib,

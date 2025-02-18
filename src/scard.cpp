@@ -218,14 +218,97 @@ void SmartCard::poll() {
         }
 
         // Convert pbRecv 6-16 to string
-        const std::string block2Content = hexToString(pbRecv + 6, 10);
-        printInfo("%s (%s): Block 2 content: %s\n", __func__, module, block2Content.c_str());
-        lookUpCard(cardInfo.uid, block2Content);
+        const std::string accessCode = hexToString(pbRecv + 6, 10);
+        printInfo("%s (%s): Block 2 content: %s\n", __func__, module, accessCode.c_str());
+        lookUpCard(cardInfo.uid, accessCode);
     } else if (cardProtocol == SCARD_ATR_PROTOCOL_FELICA_212K || cardProtocol == SCARD_ATR_PROTOCOL_FELICA_424K) {
-        lookUpCard(cardInfo.uid, "");
+    	BYTE uid[8];
+    	for (int i = 0; i < 8; i++) {
+    		uid[i] = static_cast<BYTE>(std::stoi(cardInfo.uid.substr(i * 2, 2), nullptr, 16));
+    	}
+    	const BYTE felicaReadBlock0Cmd[] = {
+			0xFFu, 0x00u, 0x00u, 0x00u, 0x13u,
+    		0xD4u, 0x40u, 0x01u,
+    		0x10u,
+    		0x06u,
+    		uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6], uid[7],
+    		0x01u,
+    		0x0Bu, 0x00u,
+    		0x01u,
+    		0x80u, 0x00u
+    	};
+
+	    cbRecv = maxApduSize;
+
+	    lRet = transmit(pci, felicaReadBlock0Cmd, sizeof(felicaReadBlock0Cmd), pbRecv, &cbRecv);
+	    if (lRet != SCARD_S_SUCCESS) {
+			printError ("%s (%s): Failed to read FeliCa S_PAD 0: 0x%08X\n", __func__, module, lRet);
+			disconnect();
+			return;
+		}
+    	// Check status code 0 and status code 1
+    	if (pbRecv[cbRecv - 21] != 0x00 || pbRecv[cbRecv - 20] != 0x00) {
+    		printError("%s (%s): Failed to read FeliCa S_PAD 0: 0x%02X, 0x%02X\n", __func__, module, pbRecv[cbRecv - 20], pbRecv[cbRecv - 19]);
+    		disconnect();
+    		return;
+    	}
+
+    	// Take S_PAD 0 data
+    	std::vector<uint8_t> spad0Content;
+    	spad0Content.reserve(16);
+    	for (int i = 0; i < 16; i++) {
+			spad0Content.push_back (pbRecv[cbRecv - 18 + i]);
+		}
+
+		const auto accessCodeBytes = decryptSPAD0 (spad0Content);
+		const auto accessCode = hexToString(accessCodeBytes);
+    	if (!checkAICAccessCode(accessCode)) {
+			disconnect();
+			return;
+		}
+    	cardInfo.accessCode = accessCode;
     }
 
     disconnect();
+}
+
+bool SmartCard::checkAICAccessCode(const std::string& accessCode) {
+	// Check if 20 digits
+	if (accessCode.length() != 20) {
+		printError("%s (%s): Invalid access code: %s\n", __func__, module, accessCode.c_str());
+		return false;
+	}
+
+	// Check if all digits are numbers
+	for (const auto c : accessCode) {
+		if (!std::isdigit(c)) {
+			printError("%s (%s): Invalid access code: %s\n", __func__, module, accessCode.c_str());
+			return false;
+		}
+	}
+
+	// Check if access code starts with 500 or 501 or 510 or 520 or 530
+	switch (std::stoi(accessCode.substr(0, 3))) {
+	case 500:
+		cardInfo.cardType = "AIC SEGA AiMe limited edition";
+		break;
+	case 501:
+		cardInfo.cardType = "AIC SEGA AiMe";
+		break;
+	case 510:
+		cardInfo.cardType = "AIC Bandai Namco Banapass";
+		break;
+	case 520:
+		cardInfo.cardType = "AIC Konami e-Amusement";
+		break;
+	case 530:
+		cardInfo.cardType = "AIC Taito NESiCA";
+		break;
+	default:
+		cardInfo.cardType = "unknown";
+		return false;
+	}
+	return true;
 }
 
 bool SmartCard::readATR() {
@@ -426,6 +509,15 @@ std::string SmartCard::hexToString(const BYTE* hex, const size_t len) {
     ss << std::hex << std::uppercase;
     for (size_t i = 0; i < len; i++) {
         ss << std::setw(2) << std::setfill('0') << static_cast<int>(hex[i]);
+    }
+    return ss.str();
+}
+
+std::string SmartCard::hexToString(const std::vector<uint8_t>& hex) {
+    std::stringstream ss;
+    ss << std::hex << std::uppercase;
+    for (const auto& b : hex) {
+        ss << std::setw(2) << std::setfill('0') << static_cast<int>(b);
     }
     return ss.str();
 }

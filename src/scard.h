@@ -30,7 +30,8 @@ private:
     bool setupReader();                                           // Set up the card reader.
     bool sendPiccOperatingParams();                               // Send PICC operating parameters to the card.
     void poll(); // Poll the smart card reader for changes.
-    bool readATR();                                               // Read the ATR of the card.
+	bool checkAICAccessCode (const std::string &accessCode);
+	bool readATR();                                               // Read the ATR of the card.
     bool connect(); // Connect to a specific reader.
     void disconnect();             // Disconnect from the smart card reader.
     long connectReader(DWORD shareMode, DWORD preferredProtocols); // Connect to a specific reader.
@@ -38,4 +39,5 @@ private:
     void lookUpCard(const std::string& uid, const std::string& accessCode); // Look up the card in the database.
     static size_t writeCallback(void* contents, size_t size, size_t nmemb, std::string* userp); // Helper function to handle the response data.
     static std::string hexToString(const BYTE* hex, size_t len); // Convert a hex string to a string.
+	static std::string hexToString (const std::vector<uint8_t>& hex);
 };
