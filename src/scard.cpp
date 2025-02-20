@@ -1,10 +1,7 @@
 #include "scard.h"
 #include "constants.h"
-#include <curl/curl.h>
-#include <nlohmann/json.hpp>
 #include <sstream>
 #include <iomanip>
-#include <toml++/toml.h>
 
 extern char module[];
 
@@ -25,14 +22,6 @@ SmartCard::~SmartCard() {
 bool SmartCard::initialize() {
     if (const long lRet = SCardEstablishContext(SCARD_SCOPE_USER, nullptr, nullptr, &hContext); lRet != SCARD_S_SUCCESS) {
         printError("%s, %s: Failed to establish context: 0x%08X\n", __func__, module, lRet);
-        return false;
-    }
-    // Read serverUrl from config.toml
-    try {
-        toml::table config = toml::parse_file("config.toml");
-        serverUrl = config["amauth"]["server"].value_or("");
-    } catch (const std::exception& e) {
-        printError("%s, %s: Failed to read config.toml: %s\n", __func__, module, e.what());
         return false;
     }
     return setupReader();

@@ -23,7 +23,6 @@ private:
     BYTE cardProtocol{};                // Protocol used by the card.
     int readCooldown = 500;               // Cooldown for reading the card.
     bool connected = false;         // Whether the card is connected.
-    std::string serverUrl = ""; // URL of the server.
 
     void handleCardStatusChange();                 // Handle changes in card status.
     bool isCardPresent();                  // Check if a card is present in the reader.
