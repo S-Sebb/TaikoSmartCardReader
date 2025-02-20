@@ -1,6 +1,5 @@
 #include "scard.h"
 #include "constants.h"
-#include <iostream>
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 #include <sstream>
@@ -219,28 +218,30 @@ void SmartCard::poll() {
 
         // Convert pbRecv 6-16 to string
         const std::string accessCode = hexToString(pbRecv + 6, 10);
-        printInfo("%s (%s): Block 2 content: %s\n", __func__, module, accessCode.c_str());
-        lookUpCard(cardInfo.uid, accessCode);
+        if (!checkMifareAccessCode(accessCode)) {
+            disconnect();
+            return;
+        }
+    	cardInfo.accessCode = accessCode;
     } else if (cardProtocol == SCARD_ATR_PROTOCOL_FELICA_212K || cardProtocol == SCARD_ATR_PROTOCOL_FELICA_424K) {
     	BYTE uid[8];
     	for (int i = 0; i < 8; i++) {
     		uid[i] = static_cast<BYTE>(std::stoi(cardInfo.uid.substr(i * 2, 2), nullptr, 16));
     	}
     	const BYTE felicaReadBlock0Cmd[] = {
-			0xFFu, 0x00u, 0x00u, 0x00u, 0x13u,
-    		0xD4u, 0x40u, 0x01u,
-    		0x10u,
-    		0x06u,
-    		uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6], uid[7],
-    		0x01u,
-    		0x0Bu, 0x00u,
-    		0x01u,
-    		0x80u, 0x00u
-    	};
+    		0xFFu, 0x00u, 0x00u, 0x00u, 0x13u,
+			0xD4u, 0x40u, 0x01u,
+			0x10u,
+			0x06u,
+			uid[0], uid[1], uid[2], uid[3], uid[4], uid[5], uid[6], uid[7],
+			0x01u,
+			0x0Bu, 0x00u,
+			0x01u,
+			0x80u, 0x00u
+		};
+    	cbRecv = maxApduSize;
 
-	    cbRecv = maxApduSize;
-
-	    lRet = transmit(pci, felicaReadBlock0Cmd, sizeof(felicaReadBlock0Cmd), pbRecv, &cbRecv);
+    	lRet = transmit(pci, felicaReadBlock0Cmd, sizeof(felicaReadBlock0Cmd), pbRecv, &cbRecv);
 	    if (lRet != SCARD_S_SUCCESS) {
 			printError ("%s (%s): Failed to read FeliCa S_PAD 0: 0x%08X\n", __func__, module, lRet);
 			disconnect();
@@ -270,6 +271,41 @@ void SmartCard::poll() {
     }
 
     disconnect();
+}
+
+bool SmartCard::checkMifareAccessCode(const std::string& accessCode) {
+    // Check if 20 digits
+    if (accessCode.length() != 20) {
+        printError("%s (%s): Invalid access code: %s\n", __func__, module, accessCode.c_str());
+        return false;
+    }
+
+    // Check if all digits are numbers
+    for (const auto c : accessCode) {
+        if (!std::isdigit(c)) {
+            printError("%s (%s): Invalid access code: %s\n", __func__, module, accessCode.c_str());
+            return false;
+        }
+    }
+
+	// Check the string array banapassPrefixes for first three digits matching
+	for (const auto& prefix : banapassPrefixes) {
+        if (accessCode.substr(0, 3) == prefix) {
+            cardInfo.cardType = "Bandai Namco Banapass";
+            return true;
+        }
+    }
+
+	// Check the string array classicalAimePrefixes for first five digits matching
+	for (const auto& prefix : classicalAimePrefixes) {
+        if (accessCode.substr(0, 5) == prefix) {
+            cardInfo.cardType = "Classical AiMe";
+            return true;
+        }
+    }
+
+	printError("%s (%s): Invalid access code: %s\n", __func__, module, accessCode.c_str());
+	return false;
 }
 
 bool SmartCard::checkAICAccessCode(const std::string& accessCode) {
@@ -395,7 +431,7 @@ bool SmartCard::sendPiccOperatingParams() {
     return true;
 }
 
-long SmartCard::connectReader(DWORD shareMode, DWORD preferredProtocols) {
+long SmartCard::connectReader (const DWORD shareMode, const DWORD preferredProtocols) {
     const long lRet = SCardConnect(hContext, readerName, shareMode, preferredProtocols, &hCard, &activeProtocol);
     return lRet;
 }
@@ -430,78 +466,6 @@ long SmartCard::transmit(LPCSCARD_IO_REQUEST pci, const BYTE* cmd, size_t cmdLen
 size_t SmartCard::writeCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
     userp->append(static_cast<char *>(contents), size * nmemb);
     return size * nmemb;
-}
-
-void SmartCard::lookUpCard(const std::string& uid, const std::string& accessCode) {
-    CURLcode res = {};
-    std::string readBuffer;
-
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-
-    if (CURL *curl = curl_easy_init()) {
-        constexpr long timeoutSeconds = 15;
-        constexpr int maxRetries = 3;
-        // Add /api/LookUpCard to the server URL
-        const std::string url = serverUrl + "/api/Cards/LookUpCard";
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-        // POST a json object {"UId" : "uid", "AccessCode" : "accessCode"}
-        nlohmann::json j;
-        j["UId"] = uid;
-        j["AccessCode"] = accessCode;
-        const std::string postData = j.dump();
-
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
-
-        // Set Content-Type header to application/json
-        curl_slist *headers = nullptr;
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-        // Set up to receive the response data
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-
-        // Set timeout
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeoutSeconds);
-
-        int retryCount = 0;
-        bool success = false;
-        while (retryCount < maxRetries) {
-            res = curl_easy_perform(curl);
-            if (res == CURLE_OK) {
-                success = true;
-                break;
-            }
-            retryCount++;
-        }
-
-        if (!success) {
-            printError("%s, %s: Failed to perform request: %s\n", __func__, module, curl_easy_strerror(res));
-            curl_easy_cleanup(curl);
-            curl_global_cleanup();
-            return;
-        }
-
-        // Parse the response
-        // Example response: {"type":"bng","errors":[],"ids":{"bng":"30760120652285557236"},"info":{"bng":{"rand_num":0,"product":0,"app":0,"namco_id":0,"bcd":0}}}
-        // Set cardInfo.cardType to type
-
-        try {
-            nlohmann::json response = nlohmann::json::parse(readBuffer);
-            printInfo("CardLookUp response: %s\n", response.dump().c_str());
-            cardInfo.cardType = response["cardType"].get<std::string>();
-            cardInfo.accessCode = response["accessCode"].get<std::string>();
-        }
-        catch (const std::exception& e) {
-            printError("%s, %s: Failed to parse response: %s\n", __func__, module, e.what());
-        }
-
-        // Always cleanup
-        curl_easy_cleanup(curl);
-    }
-
-    curl_global_cleanup();
 }
 
 std::string SmartCard::hexToString(const BYTE* hex, const size_t len) {
