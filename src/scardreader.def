@@ -3,3 +3,4 @@ LIBRARY "scardreader"
 EXPORTS
     Init
     Exit
+    WaitTouch

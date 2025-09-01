@@ -1,6 +1,7 @@
 #include "helpers.h"
 #include "constants.h"
 
+#include <stdexcept>
 #include <windows.h>
 
 
@@ -33,21 +34,25 @@ void rotateRight(std::vector<uint8_t>& data, int nBytes, int nBits) {
 }
 
 std::vector<uint8_t> decryptSPAD0(const std::vector<uint8_t>& spad0) {
+	if (spad0.size() != 16) {
+		throw std::invalid_argument("decryptSPAD0: spad0 data length is not 16 bytes");
+	}
+
 	std::vector<uint8_t> spad;
 	spad.reserve(spad0.size());
 	for (const auto b : spad0)
-		spad.push_back (sBoxInv[nTables][b]);
+		spad.push_back(sBoxInv[nTables][b]);
 
 	const int count = (spad[15] >> 4) + 7;
 	int table = spad[15] + iterAdd * count;
 
 	for (int z = 0; z < count; z++) {
 		table -= iterAdd;
-		rotateRight (spad, 15, 5);
+		rotateRight(spad, 15, 5);
 		for (int i = 0; i < 15; i++)
 			spad[i] = sBoxInv[table % nTables][spad[i]];
 	}
 
-	auto accessCodeBytes = std::vector(spad.begin() + 6, spad.end());
+	auto accessCodeBytes = std::vector<uint8_t>(spad.begin() + 6, spad.end());
 	return accessCodeBytes;
 }
