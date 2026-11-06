@@ -229,13 +229,18 @@ void SmartCard::poll() {
 				0x01u,
 				0x80u, 0x00u
 			};
-        	cbRecv = maxApduSize;
-
-        	lRet = transmit(pci, felicaReadBlock0Cmd, sizeof(felicaReadBlock0Cmd), pbRecv, &cbRecv);
-        	if (lRet != SCARD_S_SUCCESS) {
-        		printError("%s (%s): Failed to read FeliCa S_PAD 0: 0x%08X\n", __func__, module, lRet);
-        		disconnect();
-        		return;
+        	// The read can fail while the card is still entering the field, which yields a short error response
+        	// from the reader, so retry a few times before giving up.
+        	for (int attempt = 0; attempt < 3; attempt++) {
+        		cbRecv = maxApduSize;
+        		lRet = transmit(pci, felicaReadBlock0Cmd, sizeof(felicaReadBlock0Cmd), pbRecv, &cbRecv);
+        		if (lRet != SCARD_S_SUCCESS) {
+        			printError("%s (%s): Failed to read FeliCa S_PAD 0: 0x%08X\n", __func__, module, lRet);
+        			disconnect();
+        			return;
+        		}
+        		if (cbRecv >= 21) break;
+        		Sleep(50);
         	}
 
         	// Verify that the response is long enough to contain expected status bytes and S_PAD data.
@@ -247,7 +252,7 @@ void SmartCard::poll() {
 
         	// Check status bytes (located at offsets cbRecv - 21 and cbRecv - 20)
         	if (pbRecv[cbRecv - 21] != 0x00 || pbRecv[cbRecv - 20] != 0x00) {
-        		printError("%s (%s): Failed to read FeliCa S_PAD 0: 0x%02X, 0x%02X\n", __func__, module, pbRecv[cbRecv - 20], pbRecv[cbRecv - 19]);
+        		printError("%s (%s): Failed to read FeliCa S_PAD 0: 0x%02X, 0x%02X\n", __func__, module, pbRecv[cbRecv - 21], pbRecv[cbRecv - 20]);
         		disconnect();
         		return;
         	}
@@ -359,8 +364,10 @@ bool SmartCard::checkAICAccessCode(const std::string& accessCode) {
 			cardInfo.cardType = "AIC Taito NESiCA";
 			break;
 		default:
-			cardInfo.cardType = "unknown";
-			return false;
+			// A code that decrypted to 20 BCD digits is a genuine Amusement IC; issuers outside the table above
+			// still have valid codes, so pass them on and let the game's server decide.
+			cardInfo.cardType = "AIC unknown company " + accessCode.substr(0, 3);
+			break;
 		}
 		return true;
 	}
