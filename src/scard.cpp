@@ -286,7 +286,8 @@ void SmartCard::poll() {
         }
     }
 
-    disconnect();
+    // Stay connected until the card is removed: on the ACR122U, disconnecting right after a FeliCa read blocks for
+    // ~330 ms (regardless of disposition), which would delay reporting the card to the game.
 }
 
 bool SmartCard::checkMifareAccessCode(const std::string& accessCode) {
@@ -398,13 +399,12 @@ void SmartCard::handleCardStatusChange() {
         Sleep(readCooldown);
     } else if (newState & SCARD_STATE_EMPTY) {
         printWarning("No card in reader\n");
+        disconnect();  // Deferred from poll(); cheap once the card has left the field.
     } else if (newState & SCARD_STATE_PRESENT && !wasCardPresent) {
         printInfo("Card inserted\n");
         poll();  // Assuming `poll` handles detailed card interaction.
     }
     readerState[0].dwCurrentState = readerState[0].dwEventState;
-
-    Sleep(readCooldown);
 }
 
 bool SmartCard::setupReader() {
